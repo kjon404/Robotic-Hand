@@ -1,7 +1,5 @@
 #include <Servo.h>
 
-// This is a test for GitHub Desktop
-
 // Define servo objects
 Servo Thumb;
 Servo Index;
@@ -10,7 +8,7 @@ Servo Ring;
 Servo Pinky;
 
 // Define pin numbers
-const int ForcePins[] = { A0, A1, A2, A3, A4 };  // Potentiometer pins {Thumb, Index, Middle, Ring, Pinky}
+const int ForcePins[] = { A0, A1, A2, A3, A4 };  // FSR pins {Thumb, Index, Middle, Ring, Pinky}
 const int servoPins[] = { 3, 5, 6, 9, 10 };    // Servo signal pins {Thumb, Index, Middle, Ring, Pinky}
 
 // Calibrated Servo Angles
@@ -26,7 +24,7 @@ int servoAngles[5];
 
 void setup() {
   Serial.begin(9600);
-  delay(500);  // Allow MAX6675 startup
+  delay(500);
 
 
 
@@ -66,5 +64,5 @@ void loop() {
 
   
 // pacing delay
-  delay(20);  
+  delay(20);
 }
