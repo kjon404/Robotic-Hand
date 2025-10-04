@@ -5,7 +5,7 @@
 Servo Thumb, Index, Middle, Ring, Pinky;
 
 // Servo signal pins {Thumb, Index, Middle, Ring, Pinky}
-const int servoPins[] = { 3, 5, 6, 9, 10 };
+const int servoPins[] = { 9, 8, 7, 6, 5 };
 
 // Calibrated servo endpoints for each finger
 const int thumbMin = 0,   thumbMax = 180;
