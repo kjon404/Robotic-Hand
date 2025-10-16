@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <Servo.h>
+#include <ctype.h>
+#include <string.h>
 
 // Servos
 Servo Thumb, Index, Middle, Ring, Pinky;
@@ -9,7 +11,7 @@ const int servoPins[] = { 9, 8, 7, 6, 5 };
 
 // Calibrated servo endpoints for each finger
 const int thumbMin = 0,   thumbMax = 180;
-const int indexMin = 0,   indexMax = 180;\ 
+const int indexMin = 0,   indexMax = 180;
 const int middleMin = 0,  middleMax = 180;
 const int ringMin  = 0,   ringMax  = 180;
 const int pinkyMin = 0,   pinkyMax = 180;
@@ -22,7 +24,7 @@ const int maxAngles[5] = { thumbMax, indexMax, middleMax, ringMax, pinkyMax };
 int servoAngles[5];
 
 // Forward declare
-bool parseFiveFloats(const String& s, float outVals[5]);
+bool parseFiveFloats(const char* s, float outVals[5]);
 void writeAllServos();
 static inline float clamp01(float x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
 
@@ -51,11 +53,27 @@ void setup() {
 
 void loop() {
   if (Serial.available()) {
-    String line = Serial.readStringUntil('\n');
-    line.trim();
+    char lineBuf[160];
+    size_t len = Serial.readBytesUntil('\n', lineBuf, sizeof(lineBuf) - 1);
+    lineBuf[len] = '\0';
+
+    // Trim leading/trailing whitespace in-place
+    size_t start = 0;
+    while (start < len && isspace(static_cast<unsigned char>(lineBuf[start]))) {
+      start++;
+    }
+    size_t end = len;
+    while (end > start && isspace(static_cast<unsigned char>(lineBuf[end - 1]))) {
+      end--;
+    }
+    size_t trimmedLen = end > start ? end - start : 0;
+    if (start > 0 && trimmedLen > 0) {
+      memmove(lineBuf, lineBuf + start, trimmedLen);
+    }
+    lineBuf[trimmedLen] = '\0';
 
     float vals[5];
-    if (parseFiveFloats(line, vals)) {
+    if (parseFiveFloats(lineBuf, vals)) {
       for (int i = 0; i < 5; i++) {
         float v = clamp01(vals[i]); // 0 = open, 1 = closed
         float fAngle = maxAngles[i] - v * (maxAngles[i] - minAngles[i]); // open->max, closed->min
@@ -75,7 +93,7 @@ void loop() {
         if (i < 4) Serial.print(' ');
       }
       Serial.println();
-    } else if (line.length() > 0) {
+    } else if (trimmedLen > 0) {
       Serial.println("Input error. Send 5 floats in [0..1], like 0 0.5 1 0.2 0.75");
     }
   }
@@ -93,17 +111,18 @@ void writeAllServos() {
   Pinky.write(servoAngles[4]);
 }
 
-// Parse 5 floats from a String. Accepts spaces, commas, tabs, and [] as separators.
-bool parseFiveFloats(const String& s, float outVals[5]) {
-  if (s.length() == 0) return false;
+// Parse 5 floats from a character buffer. Accepts spaces, commas, tabs, and [] as separators.
+bool parseFiveFloats(const char* s, float outVals[5]) {
+  if (s == nullptr || *s == '\0') return false;
 
   // Copy to a mutable C string
   char buf[160];
-  size_t n = s.length();
+  size_t n = strlen(s);
   if (n >= sizeof(buf)) n = sizeof(buf) - 1;
-  s.substring(0, n).toCharArray(buf, n + 1);
+  memcpy(buf, s, n);
+  buf[n] = '\0';
 
-  const char* delims = " ,\t\r\n[]";
+  const char delims[] = " ,\t\r\n[]";
   int count = 0;
   for (char* tok = strtok(buf, delims); tok != nullptr && count < 5; tok = strtok(nullptr, delims)) {
     // Handle possible trailing commas or non numeric tokens gracefully
