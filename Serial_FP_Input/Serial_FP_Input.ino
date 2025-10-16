@@ -9,7 +9,7 @@ const int servoPins[] = { 9, 8, 7, 6, 5 };
 
 // Calibrated servo endpoints for each finger
 const int thumbMin = 0,   thumbMax = 180;
-const int indexMin = 0,   indexMax = 180;
+const int indexMin = 0,   indexMax = 180;\ 
 const int middleMin = 0,  middleMax = 180;
 const int ringMin  = 0,   ringMax  = 180;
 const int pinkyMin = 0,   pinkyMax = 180;
