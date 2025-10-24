@@ -1,116 +1,116 @@
-# angles.py
+# angles.py  — adaptive 0..1 mapping, smooth full range
+from __future__ import annotations
 import numpy as np
+from dataclasses import dataclass
+from typing import List, Iterable
 
-# MediaPipe hand landmark finger indices
-FINGERS = {
-    "thumb":  [1, 2, 3, 4],   # CMC, MCP, IP, TIP
-    "index":  [5, 6, 7, 8],   # MCP, PIP, DIP, TIP
-    "middle": [9, 10, 11, 12],
-    "ring":   [13, 14, 15, 16],
-    "pinky":  [17, 18, 19, 20],
-}
 ORDER = ["thumb", "index", "middle", "ring", "pinky"]
+WRIST = 0
 
-def _angle(a, b, c):
-    """Return angle at point b (radians)."""
-    ab = a - b
-    cb = c - b
-    ab_n = np.linalg.norm(ab) + 1e-6
-    cb_n = np.linalg.norm(cb) + 1e-6
-    ab = ab / ab_n
-    cb = cb / cb_n
+# Angle triplets: anchor at wrist for the first joint of each finger
+ANGLE_TRIPLETS = {
+    "thumb":  [(WRIST, 1, 2), (1, 2, 3), (2, 3, 4)],      # CMC, MCP, IP
+    "index":  [(WRIST, 5, 6), (5, 6, 7), (6, 7, 8)],      # MCP, PIP, DIP
+    "middle": [(WRIST, 9,10), (9,10,11), (10,11,12)],
+    "ring":   [(WRIST,13,14), (13,14,15), (14,15,16)],
+    "pinky":  [(WRIST,17,18), (17,18,19), (18,19,20)],
+}
+
+# PIP dominates curl perceptually
+W_THUMB = np.array([1.0, 0.30, 1.50], dtype=np.float32)       # favor MCP for thumb
+W_FING  = np.array([1.00, 1.50, 0.30], dtype=np.float32)       # MCP,PIP,DIP
+
+def _unit(v: np.ndarray, eps: float = 1e-9) -> np.ndarray:
+    n = np.linalg.norm(v, axis=-1, keepdims=True)
+    return v / np.maximum(n, eps)
+
+def _angle_at_b(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
+    ab = _unit(a - b); cb = _unit(c - b)
     cosang = float(np.clip(np.dot(ab, cb), -1.0, 1.0))
     return float(np.arccos(cosang))
 
-def extract_finger_angles(xyz21):
-    """
-    xyz21: list/array of 21 (x,y,z) landmarks
-    returns 15 angles [thumb 3, index 3, middle 3, ring 3, pinky 3] in radians
-    """
-    pts = np.asarray(xyz21, dtype=np.float32)
-    out = []
-    # thumb: wrist(0)-CMC(1)-MCP(2)-IP(3)-TIP(4)
-    out.append(_angle(pts[0], pts[1], pts[2]))
-    out.append(_angle(pts[1], pts[2], pts[3]))
-    out.append(_angle(pts[2], pts[3], pts[4]))
-    # other fingers: MCP, PIP, DIP
-    WRIST = 0
-    for name in ["index", "middle", "ring", "pinky"]:
-        f = FINGERS[name]
-        out.append(_angle(pts[WRIST], pts[f[0]], pts[f[1]]))  # MCP with proximal anchor
-        out.append(_angle(pts[f[0]],   pts[f[1]], pts[f[2]]))  # PIP
-        out.append(_angle(pts[f[1]],   pts[f[2]], pts[f[3]]))  # DIP
-    return out  # length 15
-
-def angles_to_bends(angles_rad):
-    """Convert internal angles to bend magnitudes: bend = pi - angle."""
-    bends = []
-    for a in angles_rad:
-        if a is None:
-            bends.append(0.0)
-        else:
-            bends.append(max(0.0, float(np.pi - a)))
-    return bends
-
-def normalize_curls(angles_rad, ranges=None, closed_is_1=True):
-    """
-    Map 15 joint angles -> five curls in [0..1] for thumb..pinky.
-    closed_is_1=True means 1 = closed, 0 = open.
-    """
-    if not angles_rad or len(angles_rad) < 15:
-        return [0.0, 0.0, 0.0, 0.0, 0.0]
-
-    bends = angles_to_bends(angles_rad)
-
-    # tighter defaults; adjust if needed
-    default = {
-        "thumb":  [(0.00, 0.60), (0.00, 0.70), (0.00, 0.50)],
-        "index":  [(0.05, 1.60), (0.05, 1.80), (0.05, 1.30)],
-        "middle": [(0.05, 1.60), (0.05, 1.80), (0.05, 1.30)],
-        "ring":   [(0.05, 1.60), (0.05, 1.80), (0.05, 1.30)],
-        "pinky":  [(0.05, 1.60), (0.05, 1.80), (0.05, 1.30)],
-    }
-    R = ranges or default
-
-    def clamp01(x):
-        return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
-
-    # sensitivity for non-thumb fingers
-    SENS_DEAD  = {"index": 0.02, "middle": 0.02, "ring": 0.02, "pinky": 0.02}
-    SENS_GAMMA = {"index": 0.70, "middle": 0.70, "ring": 0.70, "pinky": 0.70}
-    SENS_GAIN  = {"index": 1.20, "middle": 1.20, "ring": 1.20, "pinky": 1.20}
-
-    curls = []
-    k = 0
+def _joint_angles_15(xyz21: np.ndarray) -> List[float]:
+    P = np.asarray(xyz21, dtype=np.float32)
+    out: List[float] = []
     for name in ORDER:
-        if name not in R or len(R[name]) != 3:
-            R[name] = [(0.0, 1.5), (0.0, 1.5), (0.0, 1.5)]
+        for i, j, k in ANGLE_TRIPLETS[name]:
+            out.append(_angle_at_b(P[i], P[j], P[k]))
+    return out  # radians, length 15
 
-        vals = []
-        for j in range(3):
-            lo, hi = R[name][j]
-            span = max(hi - lo, 1e-6)
-            v = (bends[k] - lo) / span
-            vals.append(clamp01(v))
-            k += 1
+def _bends_from_angles(angles_rad: Iterable[float]) -> np.ndarray:
+    a = np.asarray(list(angles_rad), dtype=np.float32)
+    bends = np.maximum(0.0, np.pi - a)      # bend magnitude (radians)
+    return bends.reshape(5, 3)               # (finger, joint)
 
-        if name == "thumb":
-            # simple and responsive
-            curl = clamp01(max(vals))
-        else:
-            # PIP dominates
-            curl = 0.20*vals[0] + 0.65*vals[1] + 0.15*vals[2]
-            # shaping
-            dead  = SENS_DEAD[name]
-            gamma = SENS_GAMMA[name]
-            gain  = SENS_GAIN[name]
-            curl = max(0.0, (curl - dead) / (1.0 - dead))
-            curl = curl ** gamma
-            curl = clamp01(gain * curl)
+@dataclass
+class AdaptiveMinMax:
+    """Adaptive per-finger min/max with a small margin to avoid snapping."""
+    alpha: float = 0.02
+    margin: float = 0.02
+    low: np.ndarray = None
+    high: np.ndarray = None
+    inited: bool = False
 
-        curls.append(clamp01(curl))
+    def step(self, x: np.ndarray) -> np.ndarray:
+        x = np.asarray(x, dtype=np.float32)  # shape (5,)
+        if not self.inited:
+            self.low = x.copy()
+            self.high = x.copy()
+            self.inited = True
+        # move low down and high up slowly as new extremes appear
+        self.low  += self.alpha * (np.minimum(self.low,  x) - self.low)
+        self.high += self.alpha * (np.maximum(self.high, x) - self.high)
+        # ensure ordering
+        self.high = np.maximum(self.high, self.low + 1e-5)
 
-    if not closed_is_1:
-        curls = [1.0 - c for c in curls]
-    return curls
+        span = self.high - self.low
+        lo = self.low  + self.margin * span
+        hi = self.high - self.margin * span
+        span = np.maximum(hi - lo, 1e-5)
+        y = (x - lo) / span
+        return np.clip(y, 0.0, 1.0)
+
+class HandCurls:
+    """
+    OOP wrapper that yields five curls in [0..1] and adapts so you always use
+    the full range between 0 and 1 over time. No calibration needed.
+    """
+    def __init__(self, alpha: float = 0.02, margin: float = 0.02) -> None:
+        self.adapt = AdaptiveMinMax(alpha=alpha, margin=margin)
+
+    def angles15(self, xyz21: np.ndarray) -> List[float]:
+        return _joint_angles_15(xyz21)
+
+    def bends53(self, xyz21: np.ndarray) -> np.ndarray:
+        return _bends_from_angles(self.angles15(xyz21))
+
+    def curls5(self, xyz21: np.ndarray) -> np.ndarray:
+        bends = self.bends53(xyz21)               # (5,3) bends in radians
+        curls_raw = np.empty(5, dtype=np.float32)
+
+        for idx, name in enumerate(ORDER):
+            vals = bends[idx]                     # three joints
+            if name == "thumb":
+                curls_raw[idx] = float(np.dot(vals, W_THUMB))
+            else:
+                curls_raw[idx] = float(np.dot(vals, W_FING))
+
+        # map raw per-finger bend to adaptive 0..1
+        curls = self.adapt.step(curls_raw)
+        return curls
+
+    # Provided for completeness if you map to servos here
+    def to_servo_angles(
+        self,
+        curls: np.ndarray,
+        mins: Iterable[int],
+        maxs: Iterable[int],
+        closed_is_1: bool = True,
+    ) -> np.ndarray:
+        c = np.asarray(curls, dtype=np.float32)
+        if not closed_is_1:
+            c = 1.0 - c
+        mins = np.asarray(list(mins), dtype=np.float32)
+        maxs = np.asarray(list(maxs), dtype=np.float32)
+        return (mins + c * (maxs - mins)).astype(np.int16)
 
