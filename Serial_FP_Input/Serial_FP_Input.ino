@@ -10,11 +10,11 @@ Servo Thumb, Index, Middle, Ring, Pinky;
 const int servoPins[] = { 9, 8, 7, 6, 5 };
 
 // Calibrated servo endpoints for each finger
-const int thumbMin = 0,   thumbMax = 180;
-const int indexMin = 0,   indexMax = 180;
-const int middleMin = 0,  middleMax = 180;
-const int ringMin  = 0,   ringMax  = 180;
-const int pinkyMin = 0,   pinkyMax = 180;
+const int thumbMin = 0,   thumbMax = 45;
+const int indexMin = 0,   indexMax = 45;
+const int middleMin = 0,  middleMax = 45;
+const int ringMin  = 0,   ringMax  = 45;
+const int pinkyMin = 0,   pinkyMax = 45;
 
 // Convenience arrays aligned {Thumb, Index, Middle, Ring, Pinky}
 const int minAngles[5] = { thumbMin, indexMin, middleMin, ringMin, pinkyMin };
@@ -41,7 +41,7 @@ void setup() {
 
   // Start at each finger's max (fully open if that matches your mechanics)
   for (int i = 0; i < 5; i++) {
-    servoAngles[i] = maxAngles[i];
+    servoAngles[i] = minAngles[i];
   }
   writeAllServos();
 
